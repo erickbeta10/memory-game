@@ -1,0 +1,196 @@
+{% extends 'memory_game/base.html' %}
+{% load i18n %} 
+
+{% block content %}
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;700&display=swap');
+
+    /* Reseteo general para el modo oscuro */
+    body, html {
+        height: 100%;
+        margin: 0;
+        font-family: 'Fira Code', monospace; 
+        overflow-x: hidden;
+    }
+
+    /* Fondo Dark Mode con Gradiente Sutil */
+    .background-glitch {
+        position: fixed; /* Fijo para que no se mueva al hacer scroll */
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: radial-gradient(circle at center, #1e272e 0%, #11181c 100%);
+        overflow: hidden;
+        z-index: 0;
+    }
+    
+    /* Efecto sutil de código de fondo (puntos de luz) */
+    .grid-pattern {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        opacity: 0.15;
+        background-image: radial-gradient(#00ffcc 1px, transparent 1px);
+        background-size: 30px 30px;
+        animation: pulseFade 15s infinite alternate;
+    }
+
+    @keyframes pulseFade {
+        0% { opacity: 0.15; }
+        100% { opacity: 0.08; }
+    }
+
+    /* Contenedor principal del formulario */
+    .login-container {
+        position: relative;
+        z-index: 1; 
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+
+    /* Tarjeta Glassmorphism (Vidrio Esmerilado) */
+    .login-card {
+        background: rgba(45, 52, 54, 0.4); /* Fondo oscuro semitransparente */
+        backdrop-filter: blur(10px); /* Efecto de desenfoque de fondo (el cristal) */
+        border-radius: 15px;
+        border: 1px solid rgba(0, 255, 204, 0.3); /* Borde cian sutil */
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5); /* Sombra intensa */
+        padding: 40px;
+        color: #e0f7fa; /* Texto claro general */
+        max-width: 420px;
+        width: 100%;
+        text-align: center;
+        animation: fadeIn 1s ease-out;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .login-card .card-header {
+        background: none;
+        border-bottom: 2px solid #00ccff; /* Línea de terminal */
+        padding-bottom: 15px;
+        margin-bottom: 20px;
+    }
+
+    .login-card .card-title {
+        color: #00ffcc; /* Cian vibrante para el título */
+        font-weight: 700;
+        font-size: 2em;
+    }
+
+    .login-card .form-label {
+        color: #aaffdd; /* Verde claro para las etiquetas */
+        font-weight: 400;
+        text-align: left;
+        display: block;
+        margin-bottom: 5px;
+    }
+
+    /* Estilo para los inputs */
+    .login-card input[type="text"],
+    .login-card input[type="password"] {
+        background: rgba(0, 0, 0, 0.4); /* Fondo de input aún más oscuro */
+        border: 1px solid rgba(0, 204, 255, 0.5); 
+        color: #e0f7fa;
+        padding: 10px 15px;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+    }
+
+    .login-card input[type="text"]:focus,
+    .login-card input[type="password"]:focus {
+        border-color: #00ffcc;
+        box-shadow: 0 0 10px rgba(0, 255, 204, 0.6); /* Brillo cian al enfocar */
+        background: rgba(0, 0, 0, 0.5);
+    }
+
+    .login-card .btn-primary {
+        background-color: #00b894; /* Verde brillante */
+        border-color: #00b894;
+        padding: 12px 25px;
+        border-radius: 8px;
+        font-weight: 700;
+        font-size: 1.1em;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(0, 184, 148, 0.4);
+    }
+
+    .login-card .btn-primary:hover {
+        background-color: #00e676;
+        border-color: #00e676;
+        transform: translateY(-2px);
+    }
+    
+    .login-card a {
+        color: #00ccff; /* Azul brillante para enlaces */
+        text-decoration: none;
+        transition: color 0.3s ease;
+    }
+
+    .login-card a:hover {
+        color: #80e6ff;
+        text-decoration: underline;
+    }
+</style>
+
+<div class="background-glitch">
+    <div class="grid-pattern"></div>
+</div>
+
+<div class="login-container">
+    <div class="login-card">
+        <div class="card-header">
+            <h2 class="card-title mb-0">
+                <i class="bi bi-key-fill me-2"></i>{% translate "ACCESO AL SISTEMA" %}
+            </h2>
+        </div>
+        <div class="card-body">
+            {% if form.errors %}
+                <div class="alert alert-danger" role="alert">
+                    {% translate "Tus credenciales no coinciden. Por favor, verifica tu usuario y contraseña." %}
+                </div>
+            {% endif %}
+            
+            <form method="post" novalidate>
+                {% csrf_token %}
+                
+                {% for field in form %}
+                <div class="mb-3 text-start">
+                    <label for="{{ field.id_for_label }}" class="form-label">
+                        {% if field.label == 'Username' %}
+                            {% translate "USUARIO" %}
+                        {% else %}
+                            {% translate "CONTRASEÑA" %}
+                        {% endif %}
+                    </label>
+                    <input type="{{ field.field.widget.input_type }}" 
+                           name="{{ field.name }}" 
+                           id="{{ field.id_for_label }}" 
+                           class="form-control" 
+                           placeholder="Ingresa tu {{ field.label|lower|safe }}">
+                    {% for error in field.errors %}
+                        <div class="text-danger small mt-1">{{ error }}</div>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+                
+                <button type="submit" class="btn btn-primary w-100 mt-4">{% translate "ACCEDER" %}</button>
+            </form>
+            
+            <p class="mt-4 text-center small text-muted">
+                <i class="bi bi-shield-lock-fill me-1"></i>{% translate "Conexión segura vía contenedor Docker" %}
+            </p>
+            
+            <p class="mt-2 text-center">
+                {% translate "¿No tienes cuenta?" %} <a href="{% url 'memory_game:register' %}">{% translate "Regístrate aquí" %}</a>
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}

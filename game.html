@@ -1,0 +1,336 @@
+{% extends 'memory_game/base.html' %}
+{% load static %} {% block content %}
+<style>
+    /* Estilos para el tablero de juego */
+    .game-board {
+        display: grid;
+        /* Creamos un tablero 4x4 */
+        grid-template-columns: repeat(4, 1fr);
+        grid-template-rows: repeat(4, 1fr);
+        gap: 10px;
+        width: 400px;
+        height: 400px;
+        margin: 20px auto;
+        perspective: 1000px; 
+    }
+    .card {
+        width: 100%;
+        height: 100%;
+        position: relative;
+        transform-style: preserve-3d;
+        transition: transform 0.6s;
+        cursor: pointer;
+    }
+    /* Clase para una carta "volteada" */
+    .card.flipped {
+        transform: rotateY(180deg);
+    }
+    /* Clase para una carta que ya hizo "match" */
+    .card.matched {
+        cursor: default;
+        opacity: 0.5; /* La hacemos semitransparente */
+    }
+    .card-face {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        backface-visibility: hidden; 
+        border-radius: 5px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 2.5em; /* Tamaño de los iconos */
+        user-select: none; /* Evita selección de texto en la carta */
+    }
+    .card-front {
+        background-color: #0d6efd; /* Color azul */
+        color: white;
+        /* Usaremos un ícono de pregunta */
+        font-family: "bootstrap-icons";
+    }
+    .card-front::before {
+        content: "\F4F6"; /* Ícono de pregunta de Bootstrap (bi-question-circle-fill) */
+    }
+    .card-back {
+        background-color: #fff;
+        border: 2px solid #ddd;
+        transform: rotateY(180deg);
+    }
+    /* Estilo para el tablero cuando está bloqueado */
+    .game-board.locked {
+        pointer-events: none;
+    }
+</style>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+
+<div class="row">
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title text-capitalize">{{ level }}</h5>
+                <hr>
+                <p class="card-text">Intentos: <strong id="attempts-left">{{ attempts_left }}</strong></p>
+                <p class="card-text">Tiempo: <strong id="timer">{{ time_limit_seconds }}s</strong></p>
+                <hr>
+                <button class="btn btn-primary w-100" id="start-button">Empezar</button>
+                <a href="{% url 'memory_game:home' %}" class="btn btn-secondary w-100 mt-2" id="exit-button">Salir</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-9">
+        <h2 class="text-center" id="game-message">¡Presiona Empezar!</h2>
+        <div class="game-board locked" id="game-board">
+            </div>
+    </div>
+</div>
+
+<audio id="win-sound" src="{% static 'memory_game/win.mp3' %}" preload="auto"></audio>
+<audio id="lose-sound" src="{% static 'memory_game/lose.mp3' %}" preload="auto"></audio>
+
+<script>
+    // --- 1. Variables Globales y Constantes ---
+    const gameBoard = document.getElementById('game-board');
+    const attemptsLeftEl = document.getElementById('attempts-left');
+    const timerEl = document.getElementById('timer');
+    const startButton = document.getElementById('start-button');
+    const gameMessage = document.getElementById('game-message');
+    const winSound = document.getElementById('win-sound');
+    const loseSound = document.getElementById('lose-sound');
+
+    // Los íconos que usaremos. 8 íconos para 16 cartas (8 pares).
+    const ICONS = [
+        'bi-apple', 'bi-bell-fill', 'bi-bicycle', 'bi-camera-fill', 
+        'bi-cloud-sun-fill', 'bi-gem', 'bi-heart-fill', 'bi-key-fill'
+    ];
+
+    // Tomamos los valores iniciales de Django
+    let maxAttempts = {{ attempts_left }};
+    let timeLeft = {{ time_limit_seconds }};
+    const gameLevel = '{{ level }}';
+    
+    let attempts = maxAttempts;
+    let timerInterval = null;
+    let firstCard = null;
+    let secondCard = null;
+    let matchedPairs = 0;
+    let gameInProgress = false;
+    let startTime = null;
+
+
+    // --- 2. Funciones de Utilidad y AJAX ---
+    
+    // Función para obtener el CSRF token (seguridad de Django)
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+    const csrftoken = getCookie('csrftoken');
+    
+    // Función para enviar datos al servidor (AJAX)
+    function sendResultToServer(didWin, timeTaken, level) {
+        fetch('{% url "memory_game:save_result" %}', { // Llama a la nueva URL API
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrftoken // Token de seguridad
+            },
+            body: JSON.stringify({
+                did_win: didWin,
+                time_taken: timeTaken,
+                level: level
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log('Respuesta del servidor:', data);
+            if (data.status === 'success') {
+                gameMessage.textContent += " (¡Datos Guardados!)";
+            } else {
+                gameMessage.textContent += " (Error al guardar datos)";
+            }
+        })
+        .catch(error => {
+            console.error('Error de conexión:', error);
+            gameMessage.textContent += " (Error de conexión al guardar)";
+        });
+    }
+
+
+    // --- 3. Función para Generar el Tablero ---
+    function createBoard() {
+        // Duplicamos los íconos para tener pares
+        const cardIcons = [...ICONS, ...ICONS];
+        
+        // Barajamos los íconos
+        cardIcons.sort(() => 0.5 - Math.random());
+
+        gameBoard.innerHTML = ''; // Limpiamos el tablero
+        matchedPairs = 0;
+
+        // Creamos las 16 cartas
+        for (let icon of cardIcons) {
+            const card = document.createElement('div');
+            card.classList.add('card');
+            card.dataset.icon = icon; // Guardamos el ícono en el 'data-icon'
+
+            // Cara frontal (boca abajo)
+            const cardFront = document.createElement('div');
+            cardFront.classList.add('card-face', 'card-front');
+            
+            // Cara trasera (boca arriba, con el ícono)
+            const cardBack = document.createElement('div');
+            cardBack.classList.add('card-face', 'card-back');
+            const iconElement = document.createElement('i');
+            iconElement.className = `bi ${icon}`; // 'bi bi-apple'
+            cardBack.appendChild(iconElement);
+
+            card.appendChild(cardFront);
+            card.appendChild(cardBack);
+            
+            // Añadimos el evento de clic
+            card.addEventListener('click', handleCardClick);
+            
+            gameBoard.appendChild(card);
+        }
+    }
+
+    // --- 4. Función de Inicio del Juego ---
+    function startGame() {
+        if (gameInProgress) return; // No empezar si ya está en progreso
+        
+        gameInProgress = true;
+        startTime = Date.now(); // Guardamos el tiempo de inicio
+        attempts = maxAttempts;
+        timeLeft = {{ time_limit_seconds }};
+        matchedPairs = 0;
+        
+        attemptsLeftEl.textContent = attempts;
+        timerEl.textContent = `${timeLeft}s`;
+        gameMessage.textContent = '¡Encuentra los pares!';
+        
+        startButton.disabled = true;
+        startButton.textContent = 'Juego en Progreso...';
+        
+        gameBoard.classList.remove('locked'); // Desbloqueamos el tablero
+        createBoard();
+        
+        // Iniciamos el temporizador
+        timerInterval = setInterval(updateTimer, 1000);
+    }
+
+    // --- 5. Función de Clic en la Carta ---
+    function handleCardClick(event) {
+        if (!gameInProgress) return;
+        
+        const clickedCard = event.currentTarget;
+
+        // Ignorar clic si la carta ya está volteada o es un match
+        if (clickedCard === firstCard || clickedCard.classList.contains('flipped') || clickedCard.classList.contains('matched')) {
+            return;
+        }
+
+        // Voltear la carta
+        clickedCard.classList.add('flipped');
+
+        if (!firstCard) {
+            // Es la primera carta
+            firstCard = clickedCard;
+        } else {
+            // Es la segunda carta
+            secondCard = clickedCard;
+            gameBoard.classList.add('locked'); // Bloqueamos el tablero
+            checkForMatch();
+        }
+    }
+
+    // --- 6. Función para Revisar si hay Match ---
+    function checkForMatch() {
+        const isMatch = firstCard.dataset.icon === secondCard.dataset.icon;
+        
+        if (isMatch) {
+            // ¡Es un match!
+            firstCard.classList.add('matched');
+            secondCard.classList.add('matched');
+            matchedPairs++;
+            resetTurn();
+
+            // Revisar si ganó
+            if (matchedPairs === 8) {
+                endGame(true); // Ganó
+            }
+        } else {
+            // No es un match
+            attempts--;
+            attemptsLeftEl.textContent = attempts;
+
+            // Esperar un momento antes de voltearlas
+            setTimeout(() => {
+                firstCard.classList.remove('flipped');
+                secondCard.classList.remove('flipped');
+                resetTurn();
+            }, 1000); // 1 segundo
+
+            // Revisar si perdió por intentos
+            if (attempts <= 0) {
+                setTimeout(() => endGame(false), 500); // Perdió
+            }
+        }
+    }
+
+    // --- 7. Función para Resetear el Turno ---
+    function resetTurn() {
+        firstCard = null;
+        secondCard = null;
+        gameBoard.classList.remove('locked'); // Desbloqueamos el tablero
+    }
+
+    // --- 8. Función del Temporizador ---
+    function updateTimer() {
+        timeLeft--;
+        timerEl.textContent = `${timeLeft}s`;
+
+        if (timeLeft <= 0) {
+            endGame(false); // Perdió por tiempo
+        }
+    }
+
+    // --- 9. Función de Fin del Juego ---
+    function endGame(didWin) {
+        gameInProgress = false;
+        clearInterval(timerInterval); // Detenemos el tiempo
+        gameBoard.classList.add('locked'); // Bloqueamos el tablero
+        
+        const timeTaken = (Date.now() - startTime) / 1000; // Tiempo en segundos
+
+        if (didWin) {
+            gameMessage.textContent = '¡GANASTE!';
+            winSound.play();
+        } else {
+            gameMessage.textContent = '¡PERDISTE! (Se acabó el tiempo/intentos)';
+            loseSound.play();
+        }
+        
+        // ¡Llamada AJAX para guardar resultados!
+        sendResultToServer(didWin, timeTaken, gameLevel);
+        
+        startButton.disabled = false;
+        startButton.textContent = 'Jugar de Nuevo';
+    }
+
+    // --- 10. Event Listener para el Botón de Empezar ---
+    startButton.addEventListener('click', startGame);
+
+</script>
+{% endblock %}
