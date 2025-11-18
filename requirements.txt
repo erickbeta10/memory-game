@@ -1,0 +1,8 @@
+Django>=4.0
+psycopg2-binary
+
+
+# 1. Guardar registro de la partida (GameRecord)
+# BAYRON OTONIEL OCHOA TRCOHEZ DESARROLLADOR EL PROGRAMA FINAL DE CLASES..........
+# PROYECTO FINAL DE LA CLASE DE ARQUITECTURA DE COMPUTADORAS.
+

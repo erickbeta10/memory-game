@@ -1,0 +1,35 @@
+
+
+services:
+  # Servicio de la Base de Datos (Postgres)
+  db:
+    image: postgres:14
+    container_name: memory_game_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_DB=memory_game_db
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=admin123
+    ports:
+      - "5432:5432" # Solo si necesitas acceder desde tu PC, no es estrictamente necesario
+
+  # Servicio de la Aplicación Web (Django)
+  web:
+    build: .
+    container_name: memory_game_web
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app  # Mapea tu carpeta local al contenedor para desarrollo
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    environment:
+      - DB_NAME=memory_game_db
+      - DB_USER=admin
+      - DB_PASSWORD=admin123
+      - DB_HOST=db
+
+volumes:
+  postgres_data:
